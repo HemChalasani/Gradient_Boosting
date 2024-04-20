@@ -1,0 +1,126 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import average_precision_score
+
+# Load historical data
+historical_data = pd.read_csv("/content/historical_placement_data_new.csv")
+
+# Preprocess the historical data
+historical_data.fillna(method='ffill', inplace=True)  # Handle missing values if any
+historical_data = pd.get_dummies(historical_data, columns=["Gender", "Programming Language 1", "Programming Language 2", "Programming Language 3"])
+
+# Split the historical data into features and target variable
+X = historical_data.drop(columns=["Placed or not", "Placement Package (Lakhs)", "Name"])
+y = historical_data["Placed or not"]
+
+# Split the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Define hyperparameters grid
+param_grid = {
+    'n_estimators': [50, 100, 200],
+    'learning_rate': [0.05, 0.1, 0.2],
+    'max_depth': [3, 4, 5],
+    'min_samples_split': [2, 5, 10]
+}
+
+# Initialize GridSearchCV
+grid_search = GridSearchCV(estimator=GradientBoostingClassifier(), param_grid=param_grid, cv=5)
+
+# Perform grid search
+grid_search.fit(X_train, y_train)
+
+# Get the best parameters
+best_params = grid_search.best_params_
+print("Best Parameters:", best_params)
+
+# Use the best model
+best_gb_classifier = grid_search.best_estimator_
+
+# Train the best model
+best_gb_classifier.fit(X_train, y_train)
+
+# Evaluate the best model
+y_pred_train = best_gb_classifier.predict(X_train)
+train_accuracy = accuracy_score(y_train, y_pred_train)
+print("Training Accuracy:", train_accuracy)
+
+y_pred_test = best_gb_classifier.predict(X_test)
+test_accuracy = accuracy_score(y_test, y_pred_test)
+print("Testing Accuracy:", test_accuracy)
+
+# Load present student data
+present_student_data = pd.read_csv("/content/student_data1.csv")
+
+# Preprocess the present student data
+present_student_names = present_student_data["Name"]
+present_student_data.fillna(method='ffill', inplace=True)  # Handle missing values if any
+present_student_data = pd.get_dummies(present_student_data, columns=["Gender", "Programming Language 1", "Programming Language 2", "Programming Language 3"])
+
+# Ensure both datasets have the same set of features after encoding
+historical_features = set(X.columns)
+present_features = set(present_student_data.columns)
+
+missing_features = historical_features - present_features
+additional_features = present_features - historical_features
+
+# Add missing features with default value 0
+for feature in missing_features:
+    present_student_data[feature] = 0
+
+# Drop additional features not present in the historical dataset
+present_student_data = present_student_data.drop(columns=list(additional_features))
+
+# Predict chances of placement for present student dataset
+placement_probabilities = best_gb_classifier.predict_proba(present_student_data)[:, 1]
+
+# Print the predicted probabilities with names
+placement_probabilities_with_names = pd.DataFrame({"Name": present_student_names, "Placement Probability": placement_probabilities})
+print("Predicted Placement Probabilities for Present Students:")
+print(placement_probabilities_with_names)
+
+# Plot distribution of placement probabilities
+plt.figure(figsize=(10, 6))
+plt.hist(placement_probabilities, bins=20, color='skyblue', edgecolor='black')
+plt.xlabel('Placement Probability')
+plt.ylabel('Frequency')
+plt.title('Distribution of Placement Probabilities for Present Students')
+plt.grid(True)
+plt.show()
+
+cm = confusion_matrix(y_test, y_pred_test)
+labels = ['Not Placed', 'Placed']
+
+# Plot confusion matrix
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, cmap='Blues', fmt='g', xticklabels=labels, yticklabels=labels)
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix for Placement Prediction')
+plt.show()
+
+from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import average_precision_score
+
+# Calculate precision and recall
+precision, recall, _ = precision_recall_curve(y_test, placement_probabilities)
+average_precision = average_precision_score(y_test, placement_probabilities)
+
+# Plot precision-recall curve
+plt.figure(figsize=(8, 6))
+plt.step(recall, precision, color='b', alpha=0.7, where='post')
+plt.fill_between(recall, precision, step='post', alpha=0.3, color='b')
+plt.xlabel('Recall')
+plt.ylabel('Precision')
+plt.ylim([0.0, 1.05])
+plt.xlim([0.0, 1.0])
+plt.title('Precision-Recall Curve: AP={0:0.2f}'.format(average_precision))
+plt.grid(True)
+plt.show()
